@@ -1,7 +1,7 @@
 "use strict";
 
 /* =====================================================
-   1. PASTE YOUR FIREBASE CONFIG HERE (from Step 1)
+   1. FIREBASE CONFIGURATION
    ===================================================== */
 const firebaseConfig = {
   apiKey: "AIzaSyCTmiuLpeeCERg-4n6KlxsK5GxNOqR98Cw",
@@ -42,6 +42,8 @@ const RULES = {
 
 const MINUTES_PER_DAY = 24 * 60;
 const AUTH_DOMAIN = "@parkingcalc.app";
+const DEMO_ACTIVE_KEY = "parkingFeeDemoActive";
+const DEMO_LOG_KEY = "parkingFeeDemoLog";
 
 /* ---------- Page elements ---------- */
 const $ = (id) => document.getElementById(id);
@@ -175,7 +177,33 @@ function animateLogoTransition(firstRect) {
 }
 
 /* =====================================================
-   FIREBASE AUTHENTICATION
+   DEMO STORAGE HELPERS (Temporary per browser tab)
+   ===================================================== */
+function loadDemoLog() {
+  try {
+    const raw = sessionStorage.getItem(DEMO_LOG_KEY);
+    const data = raw ? JSON.parse(raw) : [];
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveDemoLog() {
+  try {
+    sessionStorage.setItem(DEMO_LOG_KEY, JSON.stringify(log));
+  } catch (e) {}
+}
+
+function clearDemoStorage() {
+  try {
+    sessionStorage.removeItem(DEMO_ACTIVE_KEY);
+    sessionStorage.removeItem(DEMO_LOG_KEY);
+  } catch (e) {}
+}
+
+/* =====================================================
+   AUTHENTICATION
    ===================================================== */
 function setAuthLoading(loading) {
   authSubmitBtn.disabled = loading;
@@ -237,16 +265,28 @@ function clearAuthError() {
   authError.textContent = "";
 }
 
-async function enterApp(firebaseUser, animate = true) {
+async function enterApp(userObj, animate = true) {
   const firstRect = animate && logoLink ? logoLink.getBoundingClientRect() : null;
-  const username = (firebaseUser.email || "").replace(AUTH_DOMAIN, "") || "user";
-  const displayName = firebaseUser.displayName || username;
 
-  currentUser = {
-    uid: firebaseUser.uid,
-    username: username,
-    name: displayName
-  };
+  if (userObj.isDemo) {
+    currentUser = {
+      uid: "demo",
+      username: "demo",
+      name: "Demo Attendant",
+      isDemo: true
+    };
+    log = loadDemoLog();
+  } else {
+    const username = (userObj.email || "").replace(AUTH_DOMAIN, "") || "user";
+    const displayName = userObj.displayName || username;
+    currentUser = {
+      uid: userObj.uid,
+      username: username,
+      name: displayName,
+      isDemo: false
+    };
+    await loadCloudLog();
+  }
 
   userBadge.textContent = "@" + currentUser.username;
   userBadge.title = currentUser.name;
@@ -263,14 +303,18 @@ async function enterApp(firebaseUser, animate = true) {
 
   form.reset();
   clearResult();
-  await loadCloudLog();
   renderLog();
 }
 
 async function logoutUser() {
   const firstRect = logoLink ? logoLink.getBoundingClientRect() : null;
+  const wasDemo = currentUser && currentUser.isDemo;
 
-  await auth.signOut();
+  clearDemoStorage();
+  if (!wasDemo && auth.currentUser) {
+    await auth.signOut();
+  }
+
   currentUser = null;
   log = [];
 
@@ -301,6 +345,10 @@ authForm.addEventListener("submit", async function (event) {
     showAuthError("Username must be 3–20 characters (letters, numbers, or underscores).", authUsernameInput);
     return;
   }
+  if (username === "demo") {
+    showAuthError("Username 'demo' is reserved. Use the Try Demo Account button.", authUsernameInput);
+    return;
+  }
   if (password.length < 6) {
     showAuthError("Password must be at least 6 characters.", authPasswordInput);
     return;
@@ -308,6 +356,7 @@ authForm.addEventListener("submit", async function (event) {
 
   const email = username + AUTH_DOMAIN;
   setAuthLoading(true);
+  clearDemoStorage();
 
   try {
     if (authMode === "register") {
@@ -340,36 +389,17 @@ authForm.addEventListener("submit", async function (event) {
 
 demoBtn.addEventListener("click", async function () {
   clearAuthError();
-  setAuthLoading(true);
 
-  const demoEmail = "demo" + AUTH_DOMAIN;
-  const demoPass = "demo1234";
+  if (auth.currentUser) {
+    await auth.signOut();
+  }
 
   try {
-    await auth.signInWithEmailAndPassword(demoEmail, demoPass);
-  } catch (error) {
-    if (error.code === "auth/user-not-found" || error.code === "auth/invalid-credential") {
-      try {
-        isRegistering = true;
-        const cred = await auth.createUserWithEmailAndPassword(demoEmail, demoPass);
-        await cred.user.updateProfile({ displayName: "Demo Attendant" });
-        await db.collection("users").doc(cred.user.uid).set({
-          username: "demo",
-          name: "Demo Attendant",
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        isRegistering = false;
-        await enterApp(cred.user, true);
-      } catch (createErr) {
-        isRegistering = false;
-        showAuthError(friendlyAuthError(createErr));
-      }
-    } else {
-      showAuthError(friendlyAuthError(error));
-    }
-  } finally {
-    setAuthLoading(false);
-  }
+    sessionStorage.setItem(DEMO_ACTIVE_KEY, "true");
+    sessionStorage.setItem(DEMO_LOG_KEY, "[]");
+  } catch (e) {}
+
+  await enterApp({ isDemo: true }, true);
 });
 
 /* =====================================================
@@ -514,14 +544,14 @@ function clearResult() {
 }
 
 /* =====================================================
-   CLOUD SAVED SESSIONS (Firestore)
+   SAVED SESSIONS (Cloud for users, Temporary for Demo)
    ===================================================== */
 function userSessionsRef() {
   return db.collection("users").doc(currentUser.uid).collection("sessions");
 }
 
 async function loadCloudLog() {
-  if (!currentUser) {
+  if (!currentUser || currentUser.isDemo) {
     log = [];
     return;
   }
@@ -660,7 +690,6 @@ saveButton.addEventListener("click", async function () {
   if (!lastResult || !currentUser) return;
 
   saveButton.disabled = true;
-  saveButton.textContent = "Saving...";
 
   const record = {
     plate: lastResult.plate,
@@ -672,6 +701,17 @@ saveButton.addEventListener("click", async function () {
     fee: lastResult.fee,
     createdAtMs: Date.now()
   };
+
+  // Demo mode: keep in temporary sessionStorage only (never sent to Firebase)
+  if (currentUser.isDemo) {
+    log.push(record);
+    saveDemoLog();
+    renderLog();
+    saveButton.textContent = "Saved to log";
+    return;
+  }
+
+  saveButton.textContent = "Saving...";
 
   try {
     const docRef = await userSessionsRef().add(record);
@@ -688,6 +728,13 @@ saveButton.addEventListener("click", async function () {
 
 clearLogButton.addEventListener("click", async function () {
   if (!currentUser || !window.confirm("Delete all of your saved sessions?")) return;
+
+  if (currentUser.isDemo) {
+    log = [];
+    saveDemoLog();
+    renderLog();
+    return;
+  }
 
   clearLogButton.disabled = true;
   try {
@@ -709,8 +756,27 @@ clearLogButton.addEventListener("click", async function () {
 /* ---------- Start ---------- */
 renderRules();
 
+// Restore active Demo session on page refresh
+let hasActiveDemo = false;
+try {
+  hasActiveDemo = sessionStorage.getItem(DEMO_ACTIVE_KEY) === "true";
+} catch (e) {}
+
+if (hasActiveDemo) {
+  isInitialAuthCheck = false;
+  enterApp({ isDemo: true }, false);
+}
+
 auth.onAuthStateChanged(async function (user) {
   if (isRegistering) return;
+
+  // Clean up any leftover Firebase demo account from earlier testing
+  if (user && user.email === "demo" + AUTH_DOMAIN) {
+    await auth.signOut();
+    return;
+  }
+
+  if (sessionStorage.getItem(DEMO_ACTIVE_KEY) === "true") return;
 
   const shouldAnimate = !isInitialAuthCheck;
   isInitialAuthCheck = false;
