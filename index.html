@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parking fee calculator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body id="top">
+
+  <header class="hero">
+    <div class="topbar">
+      <div class="brand">
+        <a class="logo" href="#top" aria-label="Back to top">
+          <span class="sign" aria-hidden="true">P</span>
+        </a>
+        <div class="brand-text">
+          <h1><span>Parking fee</span> <strong>calculator</strong></h1>
+          <p>Enter when the vehicle came in and when it went out. The fee follows the lot's rates.</p>
+        </div>
+      </div>
+
+      <nav class="nav" id="main-nav" aria-label="Main" hidden>
+        <ul class="nav-links">
+          <li><a href="#calculator">Calculator</a></li>
+          <li><a href="#rates">Rules and rates</a></li>
+          <li><a href="#log">Saved sessions</a></li>
+        </ul>
+        <div class="user-controls">
+          <span class="user-badge" id="user-badge"></span>
+          <button type="button" id="logout-btn" class="pill pill-light btn-sm">Log out</button>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <p id="load-warning" class="error wide" style="max-width: 1000px; margin: 0 auto 20px;">
+    The calculator did not start. Reload the page or open it in another browser.
+  </p>
+
+  <!-- Login / Registration Screen -->
+  <section class="auth-wrapper" id="auth-screen" aria-labelledby="auth-title">
+    <div class="panel auth-panel">
+      <div class="auth-tabs" role="tablist">
+        <button type="button" class="auth-tab is-active" id="tab-login" role="tab" aria-selected="true">Log in</button>
+        <button type="button" class="auth-tab" id="tab-register" role="tab" aria-selected="false">Create account</button>
+      </div>
+
+      <h2 id="auth-title">Attendant sign in</h2>
+      <p class="auth-subtitle" id="auth-subtitle">Sign in to access the calculator and your personal session log.</p>
+
+      <form id="auth-form" novalidate>
+        <div class="field" id="name-field" hidden>
+          <label for="auth-name">Full name</label>
+          <input id="auth-name" name="name" type="text" maxlength="40" autocomplete="name" placeholder="Example: Juan Dela Cruz">
+        </div>
+
+        <div class="field">
+          <label for="auth-username">Username</label>
+          <input id="auth-username" name="username" type="text" maxlength="20" autocomplete="username" placeholder="Enter your username" required>
+        </div>
+
+        <div class="field">
+          <label for="auth-password">Password</label>
+          <input id="auth-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+        </div>
+
+        <p id="auth-error" class="error" role="alert" hidden></p>
+
+        <div class="actions auth-actions">
+          <button type="submit" class="primary" id="auth-submit">Log in</button>
+          <button type="button" class="ghost" id="demo-btn">Try Demo Account</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- Main App (Hidden until logged in) -->
+  <main class="layout" id="calculator" hidden>
+
+    <!-- Input form -->
+    <section class="panel" aria-labelledby="entry-title">
+      <h2 id="entry-title">Vehicle details</h2>
+
+      <form id="fee-form" novalidate>
+        <div class="field">
+          <label for="category">Vehicle type</label>
+          <select id="category" name="category"></select>
+        </div>
+
+        <div class="field">
+          <label for="vehicle-detail">Vehicle detail <span class="optional">(color, brand, and model)</span></label>
+          <input id="vehicle-detail" name="vehicleDetail" type="text" maxlength="50" autocomplete="off" placeholder="Example: White Toyota Vios">
+        </div>
+
+        <div class="field">
+          <label for="plate">Plate number <span class="optional">(optional)</span></label>
+          <input id="plate" name="plate" type="text" maxlength="20" autocomplete="off" placeholder="Example: ABC 1234">
+        </div>
+
+        <div class="field">
+          <label for="entry">Time in</label>
+          <input id="entry" name="entry" type="datetime-local" required>
+        </div>
+
+        <div class="field">
+          <label for="exit">Time out</label>
+          <div class="with-action">
+            <input id="exit" name="exit" type="datetime-local" required>
+            <button type="button" id="now-btn" class="ghost">Use current time</button>
+          </div>
+        </div>
+
+        <p id="error" class="error" role="alert" hidden></p>
+
+        <div class="actions">
+          <button type="submit" class="primary">Calculate fee</button>
+          <button type="reset" class="ghost">Clear</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Result, drawn like a parking ticket -->
+    <section class="ticket" aria-labelledby="fee-title">
+      <div class="stub" aria-live="polite">
+        <h2 id="fee-title">Amount to pay</h2>
+        <p class="fee is-empty" id="fee-amount">₱--.--</p>
+        <p class="stub-note" id="fee-note">Fill in the times and choose Calculate fee.</p>
+      </div>
+
+      <div class="tear" aria-hidden="true"></div>
+
+      <div class="detail">
+        <p id="placeholder" class="placeholder">The time parked, the rate used and how the fee was worked out will show here.</p>
+
+        <div id="result" hidden>
+          <dl class="facts" id="facts"></dl>
+          <h3>How the fee was worked out</h3>
+          <ul class="breakdown" id="breakdown"></ul>
+          <button type="button" id="save-btn" class="primary">Save to log</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Rules and rates -->
+    <section class="section wide" id="rates" aria-labelledby="rates-title">
+      <h2 id="rates-title" class="section-title">Parking rules and <strong>rates</strong></h2>
+      <div class="stats" id="stats"></div>
+      <p class="section-note" id="rules-note"></p>
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Vehicle size</th>
+              <th scope="col">Examples</th>
+              <th scope="col" class="num">Starting fee</th>
+              <th scope="col" class="num">Each full hour</th>
+            </tr>
+          </thead>
+          <tbody id="rates-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Saved sessions -->
+    <section class="section wide" id="log" aria-labelledby="log-title">
+      <h2 id="log-title" class="section-title">Saved <strong>sessions</strong></h2>
+      <div class="log-bar">
+        <p id="log-summary" class="log-summary"></p>
+        <button type="button" id="clear-log" class="ghost-dark">Clear log</button>
+      </div>
+      <p id="log-empty" class="placeholder">No sessions saved yet. Calculate a fee, then choose Save to log.</p>
+      <div class="table-card">
+        <table id="log-table" hidden>
+          <thead>
+            <tr>
+              <th scope="col">Plate</th>
+              <th scope="col">Vehicle</th>
+              <th scope="col">Color, brand &amp; model</th>
+              <th scope="col">Time in</th>
+              <th scope="col">Time out</th>
+              <th scope="col">Time parked</th>
+              <th scope="col" class="num">Fee</th>
+            </tr>
+          </thead>
+          <tbody id="log-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
