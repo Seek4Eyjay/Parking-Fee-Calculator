@@ -19,14 +19,15 @@
         </a>
         <div class="brand-text">
           <h1><span>Parking fee</span> <strong>calculator</strong></h1>
-          <p>Enter when the vehicle came in and when it went out. The fee follows the lot's rates.</p>
+          <p>Assign a parking bay on arrival, then click the bay on departure to calculate and collect payment.</p>
         </div>
       </div>
 
       <nav class="nav" id="main-nav" aria-label="Main" hidden>
         <ul class="nav-links">
-          <li><a href="#calculator">Calculator</a></li>
-          <li><a href="#rates">Rules and rates</a></li>
+          <li><a href="#calculator">Check-in / Out</a></li>
+          <li><a href="#parking-map">Parking map</a></li>
+          <li><a href="#rates">Rates</a></li>
           <li><a href="#log">Saved sessions</a></li>
         </ul>
         <div class="user-controls">
@@ -50,7 +51,7 @@
       </div>
 
       <h2 id="auth-title">Attendant sign in</h2>
-      <p class="auth-subtitle" id="auth-subtitle">Sign in to access the calculator and your personal session log.</p>
+      <p class="auth-subtitle" id="auth-subtitle">Sign in to access the parking map, fee calculator, and session log.</p>
 
       <form id="auth-form" novalidate>
         <div class="field" id="name-field" hidden>
@@ -81,11 +82,26 @@
   <!-- Main App (Hidden until logged in) -->
   <main class="layout" id="calculator" hidden>
 
-    <!-- Input form -->
+    <!-- Left Card: Check-In (Park) or Check-Out (Leave) -->
     <section class="panel" aria-labelledby="entry-title">
-      <h2 id="entry-title">Vehicle details</h2>
+      <div class="panel-mode-bar" id="panel-mode-bar" hidden>
+        <span class="mode-pill is-checkout" id="mode-pill">Vehicle Check-Out</span>
+        <button type="button" id="cancel-checkout-btn" class="ghost btn-sm">Cancel check-out</button>
+      </div>
+
+      <h2 id="entry-title">Park a vehicle</h2>
+      <p class="panel-guide" id="panel-guide">Choose the vehicle type, pick an available green slot on the map below, and set Time in.</p>
 
       <form id="fee-form" novalidate>
+        <!-- Selected Parking Slot Indicator -->
+        <div class="field">
+          <label for="selected-slot-display">Parking slot</label>
+          <div class="slot-picker-box" id="slot-picker-box">
+            <span class="slot-picker-value is-empty" id="selected-slot-display">No slot selected yet</span>
+            <a href="#parking-map" class="slot-jump-link" id="jump-to-map-btn">Pick on map ↓</a>
+          </div>
+        </div>
+
         <div class="field">
           <label for="category">Vehicle type</label>
           <select id="category" name="category"></select>
@@ -103,44 +119,137 @@
 
         <div class="field">
           <label for="entry">Time in</label>
-          <input id="entry" name="entry" type="datetime-local" required>
+          <div class="with-action">
+            <input id="entry" name="entry" type="datetime-local" required>
+            <button type="button" id="now-in-btn" class="ghost">Use current time</button>
+          </div>
         </div>
 
-        <div class="field">
+        <!-- Shown when checking out a Red (Taken) parking slot -->
+        <div class="field" id="exit-field" hidden>
           <label for="exit">Time out</label>
           <div class="with-action">
-            <input id="exit" name="exit" type="datetime-local" required>
+            <input id="exit" name="exit" type="datetime-local">
             <button type="button" id="now-btn" class="ghost">Use current time</button>
           </div>
         </div>
 
         <p id="error" class="error" role="alert" hidden></p>
+        <p id="checkin-notice" class="success-note" role="status" hidden></p>
 
-        <div class="actions">
-          <button type="submit" class="primary">Calculate fee</button>
-          <button type="reset" class="ghost">Clear</button>
+        <div class="actions" id="checkin-actions">
+          <button type="submit" class="primary" id="park-submit-btn">Park vehicle in slot</button>
+          <button type="button" id="reset-checkin-btn" class="ghost">Clear</button>
+        </div>
+
+        <div class="actions" id="checkout-actions" hidden>
+          <button type="button" id="calc-checkout-btn" class="primary">Calculate fee</button>
         </div>
       </form>
     </section>
 
-    <!-- Result, drawn like a parking ticket -->
+    <!-- Right Card: Parking Ticket & Payment -->
     <section class="ticket" aria-labelledby="fee-title">
       <div class="stub" aria-live="polite">
         <h2 id="fee-title">Amount to pay</h2>
         <p class="fee is-empty" id="fee-amount">₱--.--</p>
-        <p class="stub-note" id="fee-note">Fill in the times and choose Calculate fee.</p>
+        <p class="stub-note" id="fee-note">Click a red taken slot on the map when a vehicle is leaving.</p>
       </div>
 
       <div class="tear" aria-hidden="true"></div>
 
       <div class="detail">
-        <p id="placeholder" class="placeholder">The time parked, the rate used and how the fee was worked out will show here.</p>
+        <p id="placeholder" class="placeholder">
+          <strong>How it works:</strong><br>
+          1. Select vehicle type, click a <strong>green</strong> slot on the map, and park.<br>
+          2. When leaving, search &amp; click the <strong>red</strong> slot, set <strong>Time out</strong>, and click <strong>Paid Now</strong> to free the slot and save to log.
+        </p>
 
         <div id="result" hidden>
           <dl class="facts" id="facts"></dl>
           <h3>How the fee was worked out</h3>
           <ul class="breakdown" id="breakdown"></ul>
-          <button type="button" id="save-btn" class="primary">Save to log</button>
+          <button type="button" id="save-btn" class="primary pay-btn">Paid Now &amp; Save to Log</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Parking Space Looker & Area Map -->
+    <section class="section wide" id="parking-map" aria-labelledby="map-title">
+      <h2 id="map-title" class="section-title">Parking space <strong>looker &amp; map</strong></h2>
+
+      <!-- Capacity Looker Summary -->
+      <div class="stats" id="map-stats"></div>
+
+      <!-- Full Lot / Zone Warning Banner -->
+      <p id="lot-full-banner" class="full-alert" role="status" hidden></p>
+
+      <!-- Search & Filter Bar -->
+      <div class="panel map-toolbar">
+        <div class="map-toolbar-header">
+          <div>
+            <h3>Find a parking slot</h3>
+            <p class="map-subtext" id="size-lock-hint">Vehicle Type is Large: Only green slots for Large vehicles (L-01 to L-50) can be clicked.</p>
+          </div>
+          <div class="map-legend" aria-label="Map color legend">
+            <span class="legend-item"><span class="legend-dot vacant"></span> Green = Vacant</span>
+            <span class="legend-item"><span class="legend-dot taken"></span> Red = Taken</span>
+          </div>
+        </div>
+
+        <div class="map-search-row">
+          <div class="search-input-wrap">
+            <label for="slot-search" class="sr-only">Search parking code or plate</label>
+            <input id="slot-search" type="search" autocomplete="off" placeholder="Search parking code (e.g. L-05, S-12) or plate number...">
+          </div>
+          <button type="button" id="clear-search-btn" class="ghost btn-sm" hidden>Clear search</button>
+        </div>
+      </div>
+
+      <!-- Architectural Overhead Parking Lot Map (5 Double-Loaded Bays = 100 Slots) -->
+      <div class="parking-lot-board">
+        <div class="lot-top-bar">
+          <div class="zone-badges">
+            <span class="zone-pill large-pill" id="zone-large-badge">
+              Left Bays (L-01–L-50): Big Vehicles <strong id="large-zone-count">(50/50)</strong>
+            </span>
+            <span class="zone-pill small-pill" id="zone-small-badge">
+              Right Bays (S-01–S-50): Small Vehicles <strong id="small-zone-count">(50/50)</strong>
+            </span>
+          </div>
+          <button type="button" id="reset-map-btn" class="ghost btn-sm">Reset all slots to vacant</button>
+        </div>
+
+        <div class="lot-scroll-container">
+          <div class="lot-architectural-wrap">
+            <!-- Left Enclosed Parking Yard (Driveway + 5 Vertical Bays) -->
+            <div class="lot-enclosure">
+              <div class="perimeter-road top" aria-hidden="true">
+                <span>DRIVEWAY</span>
+              </div>
+
+              <div class="lot-bays-row" id="lot-bays-row" role="group" aria-label="100 parking spaces arranged in 5 double-loaded bays"></div>
+
+              <div class="perimeter-road bottom" aria-hidden="true">
+                <span>DRIVEWAY</span>
+              </div>
+            </div>
+
+            <!-- Right Entrance / Exit Gates & Thin Blank Median -->
+            <div class="lot-right-wing">
+              <div class="gate-lane top">
+                <span class="gate-arrow" aria-hidden="true">◄</span>
+                <span class="gate-text">ENTRANCE<br>/ EXIT</span>
+              </div>
+
+              <div class="right-island" aria-hidden="true"></div>
+
+              <div class="gate-lane bottom">
+                <span class="gate-arrow" aria-hidden="true">◄</span>
+                <span class="gate-text">ENTRANCE<br>/ EXIT</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -172,18 +281,19 @@
         <p id="log-summary" class="log-summary"></p>
         <button type="button" id="clear-log" class="ghost-dark">Clear log</button>
       </div>
-      <p id="log-empty" class="placeholder">No sessions saved yet. Calculate a fee, then choose Save to log.</p>
+      <p id="log-empty" class="placeholder">No paid sessions saved yet. Check out a parked vehicle and click Paid Now.</p>
       <div class="table-card">
         <table id="log-table" hidden>
           <thead>
             <tr>
+              <th scope="col">Slot</th>
               <th scope="col">Plate</th>
               <th scope="col">Vehicle</th>
               <th scope="col">Color, brand &amp; model</th>
               <th scope="col">Time in</th>
               <th scope="col">Time out</th>
               <th scope="col">Time parked</th>
-              <th scope="col" class="num">Fee</th>
+              <th scope="col" class="num">Fee paid</th>
             </tr>
           </thead>
           <tbody id="log-body"></tbody>

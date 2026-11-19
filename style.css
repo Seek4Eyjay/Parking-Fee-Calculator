@@ -10,6 +10,16 @@
   --violet-light: #7a52f6;
   --magenta: #d946ef;
 
+  --vacant-bg: rgba(16, 185, 129, 0.22);
+  --vacant-bg-hover: rgba(16, 185, 129, 0.38);
+  --vacant-edge: #10b981;
+  --vacant-text: #a7f3d0;
+
+  --taken-bg: rgba(239, 68, 68, 0.3);
+  --taken-bg-hover: rgba(239, 68, 68, 0.46);
+  --taken-edge: #ef4444;
+  --taken-text: #fecaca;
+
   --error-text: #ffb3ad;
 
   --field-bg: rgba(255, 255, 255, 0.06);
@@ -29,6 +39,17 @@
 
 [hidden] {
   display: none !important;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
 }
 
 html {
@@ -133,7 +154,7 @@ button:focus-visible {
 
 /* ---------- Header ---------- */
 .hero {
-  padding: 22px 20px 40px;
+  padding: 22px 20px 36px;
 }
 
 .topbar {
@@ -226,10 +247,10 @@ body.is-logged-in.animate-header .nav {
 }
 
 .brand-text p {
-  max-width: 52ch;
+  max-width: 54ch;
   margin: 4px 0 0;
   color: var(--on-dark-muted);
-  font-size: 0.98rem;
+  font-size: 0.96rem;
   line-height: 1.35;
 }
 
@@ -309,6 +330,10 @@ body.is-logged-in.animate-header .nav {
   border: none;
 }
 
+button.ghost.btn-sm {
+  border: 1.5px solid rgba(255, 255, 255, 0.45);
+}
+
 /* ---------- Layout ---------- */
 .layout {
   position: relative;
@@ -346,15 +371,94 @@ body.is-logged-in.animate-header .nav {
 }
 
 .panel {
-  padding: 26px 28px 30px;
+  padding: 24px 26px 28px;
   color-scheme: dark;
 }
 
 .panel h2 {
-  margin-bottom: 16px;
+  margin-bottom: 6px;
   font-size: 1.9rem;
   font-weight: 700;
   scroll-margin-top: 24px;
+}
+
+.panel-mode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.mode-pill {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mode-pill.is-checkout {
+  background: var(--taken-bg);
+  color: var(--taken-text);
+  border: 1px solid var(--taken-edge);
+}
+
+.panel-guide {
+  margin: 0 0 18px;
+  color: var(--on-dark-muted);
+  font-size: 0.94rem;
+  line-height: 1.4;
+}
+
+/* Slot picker status box inside the form */
+.slot-picker-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 46px;
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.26);
+  border: 1.5px dashed rgba(255, 255, 255, 0.32);
+  border-radius: 10px;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.slot-picker-box.has-vacant-slot {
+  background: var(--vacant-bg);
+  border-style: solid;
+  border-color: var(--vacant-edge);
+}
+
+.slot-picker-box.has-taken-slot {
+  background: var(--taken-bg);
+  border-style: solid;
+  border-color: var(--taken-edge);
+}
+
+.slot-picker-value {
+  font-weight: 700;
+  font-size: 0.98rem;
+}
+
+.slot-picker-value.is-empty {
+  color: var(--on-dark-muted);
+  font-weight: 500;
+}
+
+.slot-jump-link {
+  color: #f6c700;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.slot-jump-link:hover {
+  text-decoration: underline;
 }
 
 /* ---------- Authentication ---------- */
@@ -419,13 +523,14 @@ body.is-logged-in.animate-header .nav {
 
 /* ---------- Form ---------- */
 .field {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 label {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 5px;
   font-weight: 600;
+  font-size: 0.96rem;
 }
 
 .optional {
@@ -436,8 +541,8 @@ label {
 input,
 select {
   width: 100%;
-  min-height: 46px;
-  padding: 10px 12px;
+  min-height: 44px;
+  padding: 9px 12px;
   background: var(--field-bg);
   color: var(--on-dark);
   border: 1.5px solid var(--field-edge);
@@ -446,8 +551,14 @@ select {
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
 
-input:hover,
-select:hover {
+input:disabled,
+select:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+input:hover:not(:disabled),
+select:hover:not(:disabled) {
   border-color: rgba(255, 255, 255, 0.45);
 }
 
@@ -493,12 +604,12 @@ input[aria-invalid="true"] {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 button {
-  min-height: 46px;
-  padding: 10px 20px;
+  min-height: 44px;
+  padding: 9px 20px;
   border-radius: 999px;
   font: inherit;
   font-weight: 600;
@@ -530,6 +641,20 @@ button {
   cursor: default;
 }
 
+.pay-btn {
+  width: 100%;
+  background: #10b981;
+  border-color: #10b981;
+  color: #06281e;
+  font-weight: 700;
+}
+
+.pay-btn:hover:not(:disabled) {
+  background: #34d399;
+  border-color: #34d399;
+  box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4);
+}
+
 .ghost,
 .ghost-dark {
   background: transparent;
@@ -556,6 +681,17 @@ button {
   border-radius: 0 8px 8px 0;
   background: rgba(255, 90, 80, 0.14);
   color: var(--error-text);
+  font-weight: 600;
+  animation: fade-up 0.25s ease-out both;
+}
+
+.success-note {
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border-left: 4px solid #10b981;
+  border-radius: 0 8px 8px 0;
+  background: rgba(16, 185, 129, 0.16);
+  color: #a7f3d0;
   font-weight: 600;
   animation: fade-up 0.25s ease-out both;
 }
@@ -625,6 +761,7 @@ button {
 .placeholder {
   margin: 0;
   color: var(--on-dark-muted);
+  line-height: 1.55;
 }
 
 .facts {
@@ -689,7 +826,7 @@ button {
   }
 }
 
-/* ---------- Dark sections: rates and log ---------- */
+/* ---------- Dark sections: map, rates and log ---------- */
 .section {
   padding-top: 32px;
   scroll-margin-top: 16px;
@@ -697,7 +834,7 @@ button {
 }
 
 .section-title {
-  margin-bottom: 28px;
+  margin-bottom: 24px;
   text-align: center;
   font-size: clamp(2rem, 4.5vw, 2.8rem);
   font-weight: 500;
@@ -711,12 +848,12 @@ button {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 20px;
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
 .stat {
   position: relative;
-  padding: 28px 20px 32px;
+  padding: 24px 20px 28px;
   overflow: hidden;
   background: var(--bg-soft);
   backdrop-filter: blur(12px);
@@ -743,10 +880,18 @@ button {
   background: linear-gradient(90deg, var(--violet), var(--magenta));
 }
 
+.stat.is-full::after {
+  background: #ef4444;
+}
+
+.stat.is-full .stat-number {
+  color: #fca5a5;
+}
+
 .stat-number {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 3.6rem;
+  font-size: 3.3rem;
   font-weight: 700;
   line-height: 1;
 }
@@ -754,6 +899,405 @@ button {
 .stat-label {
   margin: 8px 0 0;
   color: var(--on-dark-muted);
+}
+
+.stat-pill {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.stat-pill.open {
+  background: var(--vacant-bg);
+  color: var(--vacant-text);
+  border: 1px solid var(--vacant-edge);
+}
+
+.stat-pill.full {
+  background: var(--taken-bg);
+  color: var(--taken-text);
+  border: 1px solid var(--taken-edge);
+}
+
+/* ---------- Parking Space Looker & Architectural Map ---------- */
+.full-alert {
+  margin: 0 0 18px;
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1.5px solid #ef4444;
+  border-radius: 12px;
+  color: #fecaca;
+  font-weight: 600;
+  text-align: center;
+}
+
+.map-toolbar {
+  margin-bottom: 18px;
+  padding: 20px 24px;
+}
+
+.map-toolbar-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.map-toolbar-header h3 {
+  font-family: var(--font-body);
+  font-size: 1.12rem;
+  font-weight: 700;
+}
+
+.map-subtext {
+  margin: 4px 0 0;
+  color: var(--on-dark-muted);
+  font-size: 0.94rem;
+}
+
+.map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid var(--edge-dark);
+  border-radius: 999px;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+
+.legend-dot.vacant {
+  background: var(--vacant-edge);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+.legend-dot.taken {
+  background: var(--taken-edge);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+
+.map-search-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.search-input-wrap {
+  flex: 1 1 auto;
+}
+
+/* Overhead Parking Lot Visual Board */
+.parking-lot-board {
+  padding: 18px;
+  background: rgba(9, 10, 42, 0.82);
+  border: 1.5px solid var(--edge-dark);
+  border-radius: 18px;
+}
+
+.lot-top-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.zone-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.zone-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--edge-dark);
+  border-radius: 999px;
+  font-size: 0.86rem;
+  color: var(--on-dark-muted);
+  transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+}
+
+.zone-pill.is-active-zone {
+  background: rgba(91, 45, 240, 0.28);
+  border-color: #a78bfa;
+  color: #fff;
+}
+
+.lot-scroll-container {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+/* Architectural 5-Bay Layout */
+.lot-architectural-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 820px;
+}
+
+.lot-enclosure {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 10px 10px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-right: none;
+  border-radius: 14px 0 0 14px;
+}
+
+.perimeter-road {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.perimeter-road.top {
+  margin-bottom: 8px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.16);
+}
+
+.perimeter-road.bottom {
+  margin-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.16);
+}
+
+/* 5 Double-Loaded Vertical Bays */
+.lot-bays-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.parking-bay {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* Rounded concrete end-cap islands at top & bottom of each bay */
+.bay-endcap {
+  height: 14px;
+  background: rgba(255, 255, 255, 0.11);
+  border: 1.5px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+}
+
+.bay-endcap.top {
+  margin-bottom: 4px;
+}
+
+.bay-endcap.bottom {
+  margin-top: 4px;
+}
+
+/* Two columns of 10 stalls separated by the lamp-post spine */
+.bay-stalls-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 10px minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.bay-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Central spine with 5 parking lot lamp posts */
+.bay-spine {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.bay-spine::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.lamp-node {
+  position: relative;
+  z-index: 1;
+  width: 7px;
+  height: 7px;
+  background: #fde047;
+  border: 1.5px solid #0b0a3a;
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(253, 224, 71, 0.75);
+}
+
+/* Individual Parking Stall Button inside each bay (enlarged) */
+.slot-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 3px 4px;
+  border-radius: 6px;
+  border-width: 1.5px;
+  border-style: solid;
+  font-family: var(--font-body);
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.14s ease, background-color 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+.slot-btn.is-vacant {
+  background: var(--vacant-bg);
+  border-color: var(--vacant-edge);
+  color: var(--vacant-text);
+}
+
+.slot-btn.is-vacant:hover:not(:disabled) {
+  background: var(--vacant-bg-hover);
+  transform: scale(1.04);
+  box-shadow: 0 3px 10px rgba(16, 185, 129, 0.35);
+  z-index: 2;
+}
+
+/* Disabled opposite-size vacant slots */
+.slot-btn.is-vacant:disabled {
+  background: rgba(255, 255, 255, 0.035);
+  border-color: rgba(255, 255, 255, 0.13);
+  color: rgba(255, 255, 255, 0.32);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.slot-btn.is-taken {
+  background: var(--taken-bg);
+  border-color: var(--taken-edge);
+  color: var(--taken-text);
+}
+
+.slot-btn.is-taken:hover {
+  background: var(--taken-bg-hover);
+  transform: scale(1.04);
+  box-shadow: 0 3px 10px rgba(239, 68, 68, 0.4);
+  z-index: 2;
+}
+
+.slot-btn.is-selected {
+  box-shadow: 0 0 0 2.5px var(--focus) !important;
+  transform: scale(1.05);
+  z-index: 3;
+}
+
+.slot-btn.is-search-dimmed {
+  opacity: 0.16;
+}
+
+.slot-btn.is-search-match {
+  box-shadow: 0 0 0 2.5px #38bdf8;
+  transform: scale(1.05);
+  z-index: 3;
+}
+
+.slot-code {
+  font-family: var(--font-display);
+  font-size: 0.96rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.slot-sub {
+  max-width: 100%;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.05;
+  opacity: 0.9;
+}
+
+/* Right Wing: Thin Entrance/Exit & Thin Blank Median */
+.lot-right-wing {
+  flex: 0 0 82px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.gate-lane {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 7px 4px;
+  background: rgba(16, 185, 129, 0.14);
+  border-top: 2px solid rgba(255, 255, 255, 0.28);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  color: #a7f3d0;
+  font-family: var(--font-display);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.03em;
+  text-align: left;
+}
+
+.gate-arrow {
+  font-size: 0.85rem;
+  color: #34d399;
+}
+
+.right-island {
+  flex: 1 1 auto;
+  width: 44px;
+  margin: 0 auto;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.26);
+  border-radius: 999px;
 }
 
 .section-note {
@@ -846,6 +1390,10 @@ tbody tr:last-child td {
 
   .stats {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .parking-lot-board {
+    padding: 14px;
   }
 
   .topbar {

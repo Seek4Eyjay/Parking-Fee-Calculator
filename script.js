@@ -17,12 +17,16 @@ const auth = firebase.auth();
 const db = firebase.firestore();
 
 /* =====================================================
-   2. PARKING RULES
+   2. PARKING RULES & CAPACITY
    ===================================================== */
 const RULES = {
   currency: "₱",
   perFullHour: 10,
   maxDays: 30,
+  capacity: {
+    large: 50,
+    small: 50
+  },
   sizes: {
     large: { groupLabel: "Large vehicles", label: "Large vehicle", startFee: 50 },
     small: { groupLabel: "Small vehicles", label: "Small vehicle", startFee: 20 }
@@ -44,6 +48,7 @@ const MINUTES_PER_DAY = 24 * 60;
 const AUTH_DOMAIN = "@parkingcalc.app";
 const DEMO_ACTIVE_KEY = "parkingFeeDemoActive";
 const DEMO_LOG_KEY = "parkingFeeDemoLog";
+const DEMO_SLOTS_KEY = "parkingFeeDemoSlots";
 
 /* ---------- Page elements ---------- */
 const $ = (id) => document.getElementById(id);
@@ -71,16 +76,36 @@ const authError = $("auth-error");
 const authSubmitBtn = $("auth-submit");
 const demoBtn = $("demo-btn");
 
-// Calculator elements
+// Left Form (Check-In & Check-Out)
+const panelModeBar = $("panel-mode-bar");
+const modePill = $("mode-pill");
+const cancelCheckoutBtn = $("cancel-checkout-btn");
+const entryTitle = $("entry-title");
+const panelGuide = $("panel-guide");
+
+const slotPickerBox = $("slot-picker-box");
+const selectedSlotDisplay = $("selected-slot-display");
+const jumpToMapBtn = $("jump-to-map-btn");
+
 const form = $("fee-form");
 const vehicleSelect = $("category");
 const vehicleDetailInput = $("vehicle-detail");
 const plateInput = $("plate");
 const entryInput = $("entry");
+const nowInButton = $("now-in-btn");
+const exitField = $("exit-field");
 const exitInput = $("exit");
 const nowButton = $("now-btn");
 const errorBox = $("error");
+const checkinNotice = $("checkin-notice");
 
+const checkinActions = $("checkin-actions");
+const parkSubmitBtn = $("park-submit-btn");
+const resetCheckinBtn = $("reset-checkin-btn");
+const checkoutActions = $("checkout-actions");
+const calcCheckoutBtn = $("calc-checkout-btn");
+
+// Right Ticket (Result & Payment)
 const feeAmount = $("fee-amount");
 const feeNote = $("fee-note");
 const placeholder = $("placeholder");
@@ -89,6 +114,21 @@ const factsList = $("facts");
 const breakdownList = $("breakdown");
 const saveButton = $("save-btn");
 
+// Parking Map & Space Looker
+const mapStatsBox = $("map-stats");
+const lotFullBanner = $("lot-full-banner");
+const sizeLockHint = $("size-lock-hint");
+const slotSearchInput = $("slot-search");
+const clearSearchBtn = $("clear-search-btn");
+
+const zoneLargeBadge = $("zone-large-badge");
+const zoneSmallBadge = $("zone-small-badge");
+const largeZoneCount = $("large-zone-count");
+const smallZoneCount = $("small-zone-count");
+const lotBaysRow = $("lot-bays-row");
+const resetMapBtn = $("reset-map-btn");
+
+// Rules & Saved log
 const statsBox = $("stats");
 const rulesNote = $("rules-note");
 const ratesBody = $("rates-body");
@@ -103,6 +143,13 @@ let authMode = "login";
 let currentUser = null;
 let lastResult = null;
 let log = [];
+let occupiedSlots = {}; // Map of slotId -> { vehicleKey, label, detail, plate, timeIn }
+
+// Workflow state: "checkin" or "checkout"
+let workflowMode = "checkin";
+let selectedVacantSlot = null;
+let checkoutSlotId = null;
+
 let isRegistering = false;
 let isInitialAuthCheck = true;
 
@@ -195,10 +242,27 @@ function saveDemoLog() {
   } catch (e) {}
 }
 
+function loadDemoSlots() {
+  try {
+    const raw = sessionStorage.getItem(DEMO_SLOTS_KEY);
+    const data = raw ? JSON.parse(raw) : {};
+    return data && typeof data === "object" ? data : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveDemoSlots() {
+  try {
+    sessionStorage.setItem(DEMO_SLOTS_KEY, JSON.stringify(occupiedSlots));
+  } catch (e) {}
+}
+
 function clearDemoStorage() {
   try {
     sessionStorage.removeItem(DEMO_ACTIVE_KEY);
     sessionStorage.removeItem(DEMO_LOG_KEY);
+    sessionStorage.removeItem(DEMO_SLOTS_KEY);
   } catch (e) {}
 }
 
@@ -246,8 +310,8 @@ function setAuthMode(mode) {
   nameField.hidden = !isRegister;
   authTitle.textContent = isRegister ? "Create an account" : "Attendant sign in";
   authSubtitle.textContent = isRegister
-    ? "Register to keep your own private parking session records."
-    : "Sign in to access the calculator and your personal session log.";
+    ? "Register to keep your own private parking map and session records."
+    : "Sign in to access the parking map, fee calculator, and session log.";
   authSubmitBtn.textContent = isRegister ? "Create account" : "Log in";
   authPasswordInput.setAttribute("autocomplete", isRegister ? "new-password" : "current-password");
 
@@ -276,6 +340,7 @@ async function enterApp(userObj, animate = true) {
       isDemo: true
     };
     log = loadDemoLog();
+    occupiedSlots = loadDemoSlots();
   } else {
     const username = (userObj.email || "").replace(AUTH_DOMAIN, "") || "user";
     const displayName = userObj.displayName || username;
@@ -285,7 +350,7 @@ async function enterApp(userObj, animate = true) {
       name: displayName,
       isDemo: false
     };
-    await loadCloudLog();
+    await loadCloudData();
   }
 
   userBadge.textContent = "@" + currentUser.username;
@@ -301,8 +366,8 @@ async function enterApp(userObj, animate = true) {
     animateLogoTransition(firstRect);
   }
 
-  form.reset();
-  clearResult();
+  switchToCheckinMode(true);
+  renderParkingMap();
   renderLog();
 }
 
@@ -317,6 +382,9 @@ async function logoutUser() {
 
   currentUser = null;
   log = [];
+  occupiedSlots = {};
+  selectedVacantSlot = null;
+  checkoutSlotId = null;
 
   authForm.reset();
   setAuthMode("login");
@@ -372,6 +440,7 @@ authForm.addEventListener("submit", async function (event) {
       await db.collection("users").doc(cred.user.uid).set({
         username: username,
         name: displayName,
+        occupiedSlots: {},
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
       isRegistering = false;
@@ -397,13 +466,489 @@ demoBtn.addEventListener("click", async function () {
   try {
     sessionStorage.setItem(DEMO_ACTIVE_KEY, "true");
     sessionStorage.setItem(DEMO_LOG_KEY, "[]");
+    sessionStorage.setItem(DEMO_SLOTS_KEY, "{}");
   } catch (e) {}
 
   await enterApp({ isDemo: true }, true);
 });
 
 /* =====================================================
-   FEE CALCULATION
+   CHECK-IN & CHECK-OUT WORKFLOW MODES
+   ===================================================== */
+function getSelectedVehicleSize() {
+  const vehicle = RULES.vehicles[vehicleSelect.value];
+  return vehicle ? vehicle.size : "large";
+}
+
+function updateSlotPickerDisplay() {
+  slotPickerBox.classList.remove("has-vacant-slot", "has-taken-slot");
+
+  if (workflowMode === "checkout" && checkoutSlotId) {
+    slotPickerBox.classList.add("has-taken-slot");
+    selectedSlotDisplay.classList.remove("is-empty");
+    selectedSlotDisplay.textContent = checkoutSlotId + " (Taken — Checking Out)";
+    jumpToMapBtn.hidden = true;
+  } else if (selectedVacantSlot) {
+    slotPickerBox.classList.add("has-vacant-slot");
+    selectedSlotDisplay.classList.remove("is-empty");
+    const sizeLabel = selectedVacantSlot.startsWith("L-") ? "Big Vehicle" : "Small Vehicle";
+    selectedSlotDisplay.textContent = selectedVacantSlot + " (" + sizeLabel + ")";
+    jumpToMapBtn.hidden = false;
+    jumpToMapBtn.textContent = "Change slot ↓";
+  } else {
+    selectedSlotDisplay.classList.add("is-empty");
+    selectedSlotDisplay.textContent = "No slot selected — pick a green slot below";
+    jumpToMapBtn.hidden = false;
+    jumpToMapBtn.textContent = "Pick on map ↓";
+  }
+}
+
+function switchToCheckinMode(clearInputs = true) {
+  workflowMode = "checkin";
+  checkoutSlotId = null;
+  selectedVacantSlot = null;
+
+  panelModeBar.hidden = true;
+  entryTitle.textContent = "Park a vehicle";
+  panelGuide.textContent = "Select Vehicle type, click an available green slot on the map below, and set Time in.";
+
+  vehicleSelect.disabled = false;
+  vehicleDetailInput.disabled = false;
+  plateInput.disabled = false;
+  entryInput.disabled = false;
+  nowInButton.hidden = false;
+
+  exitField.hidden = true;
+  exitInput.value = "";
+  checkinActions.hidden = false;
+  checkoutActions.hidden = true;
+
+  if (clearInputs) {
+    form.reset();
+    checkinNotice.hidden = true;
+  }
+
+  clearError();
+  clearResult();
+  updateSlotPickerDisplay();
+  renderParkingMap();
+}
+
+function switchToCheckoutMode(slotId) {
+  const occupant = occupiedSlots[slotId];
+  if (!occupant) return;
+
+  workflowMode = "checkout";
+  checkoutSlotId = slotId;
+  selectedVacantSlot = null;
+  checkinNotice.hidden = true;
+
+  panelModeBar.hidden = false;
+  modePill.textContent = "Vehicle Check-Out";
+  entryTitle.textContent = "Check out Slot " + slotId;
+  panelGuide.textContent = "Set Time out (or click Use current time) to see the total fee, then click Paid Now.";
+
+  // Load parked vehicle details into the form
+  vehicleSelect.value = occupant.vehicleKey;
+  vehicleDetailInput.value = occupant.detail || "";
+  plateInput.value = occupant.plate || "";
+  entryInput.value = toInputValue(new Date(occupant.timeIn));
+
+  // Lock check-in details so they match the parked record
+  vehicleSelect.disabled = true;
+  vehicleDetailInput.disabled = true;
+  plateInput.disabled = true;
+  entryInput.disabled = true;
+  nowInButton.hidden = true;
+
+  // Show Time Out field ready for departure
+  exitField.hidden = false;
+  exitInput.value = "";
+  checkinActions.hidden = true;
+  checkoutActions.hidden = false;
+
+  clearError();
+  clearResult();
+  feeNote.textContent = "Set Time out for Slot " + slotId + " to see the total fee.";
+
+  updateSlotPickerDisplay();
+  renderParkingMap();
+
+  calculatorMain.scrollIntoView({ behavior: "smooth" });
+}
+
+cancelCheckoutBtn.addEventListener("click", function () {
+  switchToCheckinMode(true);
+});
+
+resetCheckinBtn.addEventListener("click", function () {
+  switchToCheckinMode(true);
+});
+
+// When Vehicle Type changes during Check-In, lock the opposite parking area
+vehicleSelect.addEventListener("change", function () {
+  if (workflowMode !== "checkin") return;
+
+  const currentSize = getSelectedVehicleSize();
+  if (selectedVacantSlot) {
+    const slotSize = selectedVacantSlot.startsWith("L-") ? "large" : "small";
+    if (slotSize !== currentSize) {
+      selectedVacantSlot = null;
+    }
+  }
+
+  clearError();
+  checkinNotice.hidden = true;
+  updateSlotPickerDisplay();
+  renderParkingMap();
+});
+
+nowInButton.addEventListener("click", function () {
+  entryInput.value = toInputValue(new Date());
+  clearError();
+});
+
+/* =====================================================
+   PARKING SPACE LOOKER & ARCHITECTURAL 5-BAY MAP
+   ===================================================== */
+function buildSlotIds(sizeKey) {
+  const prefix = sizeKey === "large" ? "L-" : "S-";
+  const count = RULES.capacity[sizeKey];
+  const ids = [];
+  for (let i = 1; i <= count; i++) {
+    ids.push(prefix + String(i).padStart(2, "0"));
+  }
+  return ids;
+}
+
+const LARGE_SLOTS = buildSlotIds("large");
+const SMALL_SLOTS = buildSlotIds("small");
+
+// 5 Double-loaded vertical bays (20 stalls each = 100 stalls total)
+// Left 5 columns of 10 = L-01 to L-50 (Big Vehicles)
+// Right 5 columns of 10 = S-01 to S-50 (Small Vehicles)
+const ARCHITECTURAL_BAYS = [
+  {
+    leftSlots:  LARGE_SLOTS.slice(0, 10),   // L-01 to L-10
+    rightSlots: LARGE_SLOTS.slice(10, 20)   // L-11 to L-20
+  },
+  {
+    leftSlots:  LARGE_SLOTS.slice(20, 30),  // L-21 to L-30
+    rightSlots: LARGE_SLOTS.slice(30, 40)   // L-31 to L-40
+  },
+  {
+    leftSlots:  LARGE_SLOTS.slice(40, 50),  // L-41 to L-50
+    rightSlots: SMALL_SLOTS.slice(0, 10)    // S-01 to S-10
+  },
+  {
+    leftSlots:  SMALL_SLOTS.slice(10, 20),  // S-11 to S-20
+    rightSlots: SMALL_SLOTS.slice(20, 30)   // S-21 to S-30
+  },
+  {
+    leftSlots:  SMALL_SLOTS.slice(30, 40),  // S-31 to S-40
+    rightSlots: SMALL_SLOTS.slice(40, 50)   // S-41 to S-50
+  }
+];
+
+async function persistSlotsState() {
+  if (!currentUser) return;
+
+  if (currentUser.isDemo) {
+    saveDemoSlots();
+    return;
+  }
+
+  try {
+    await db.collection("users").doc(currentUser.uid).set(
+      { occupiedSlots: occupiedSlots },
+      { merge: true }
+    );
+  } catch (error) {
+    console.error("Failed to save parking map state:", error);
+  }
+}
+
+function createSlotButton(slotId, query, selectedSize) {
+  const zoneSize = slotId.startsWith("L-") ? "large" : "small";
+  const occupant = occupiedSlots[slotId];
+  const isTaken = Boolean(occupant);
+  const isSelected = (workflowMode === "checkin" && selectedVacantSlot === slotId) ||
+                     (workflowMode === "checkout" && checkoutSlotId === slotId);
+
+  let matchesSearch = true;
+  if (query) {
+    const codeMatch = slotId.toLowerCase().includes(query);
+    const plateMatch = isTaken && occupant.plate && occupant.plate.toLowerCase().includes(query);
+    const labelMatch = isTaken && occupant.label && occupant.label.toLowerCase().includes(query);
+    matchesSearch = codeMatch || plateMatch || labelMatch;
+  }
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+
+  let classes = "slot-btn " + (isTaken ? "is-taken" : "is-vacant");
+  if (isSelected) classes += " is-selected";
+  if (query) {
+    classes += matchesSearch ? " is-search-match" : " is-search-dimmed";
+  }
+  btn.className = classes;
+
+  // Enforce size lock on vacant slots: cannot click opposite parking area
+  if (!isTaken && zoneSize !== selectedSize) {
+    btn.disabled = true;
+    btn.title = slotId + " — Locked (Select a " + RULES.sizes[zoneSize].label.toLowerCase() + " in Vehicle type first)";
+  } else if (!isTaken) {
+    btn.title = slotId + " — VACANT";
+  } else {
+    btn.title = slotId + " — TAKEN (" + occupant.label + (occupant.plate ? ", " + occupant.plate : "") + ")";
+  }
+
+  const codeSpan = makeElement("span", slotId, "slot-code");
+  const subLabel = isTaken ? (occupant.plate || occupant.label || "TAKEN") : "VACANT";
+  const subSpan = makeElement("span", subLabel, "slot-sub");
+
+  btn.appendChild(codeSpan);
+  btn.appendChild(subSpan);
+
+  btn.addEventListener("click", function () {
+    if (isTaken) {
+      switchToCheckoutMode(slotId);
+    } else {
+      if (workflowMode === "checkout") {
+        switchToCheckinMode(true);
+      }
+      selectedVacantSlot = slotId;
+      clearError();
+      checkinNotice.hidden = true;
+      updateSlotPickerDisplay();
+      renderParkingMap();
+      calculatorMain.scrollIntoView({ behavior: "smooth" });
+    }
+  });
+
+  return btn;
+}
+
+function renderParkingMap() {
+  const largeTaken = LARGE_SLOTS.filter((id) => Boolean(occupiedSlots[id])).length;
+  const smallTaken = SMALL_SLOTS.filter((id) => Boolean(occupiedSlots[id])).length;
+
+  const largeVacant = RULES.capacity.large - largeTaken;
+  const smallVacant = RULES.capacity.small - smallTaken;
+  const totalOccupied = largeTaken + smallTaken;
+  const totalCapacity = RULES.capacity.large + RULES.capacity.small;
+  const totalVacant = totalCapacity - totalOccupied;
+
+  // 1. Capacity Looker Stat Cards
+  mapStatsBox.textContent = "";
+
+  const statItems = [
+    {
+      number: largeVacant + " / " + RULES.capacity.large,
+      label: "Big vehicle spaces vacant",
+      isFull: largeVacant === 0,
+      statusText: largeVacant === 0 ? "Big Zone Full" : "Available"
+    },
+    {
+      number: smallVacant + " / " + RULES.capacity.small,
+      label: "Small vehicle spaces vacant",
+      isFull: smallVacant === 0,
+      statusText: smallVacant === 0 ? "Small Zone Full" : "Available"
+    },
+    {
+      number: totalVacant + " / " + totalCapacity,
+      label: "Total spaces available (" + totalOccupied + " taken)",
+      isFull: totalVacant === 0,
+      statusText: totalVacant === 0 ? "Parking Area Full" : "Lot Open"
+    }
+  ];
+
+  statItems.forEach(function (item) {
+    const card = makeElement("div", undefined, "stat" + (item.isFull ? " is-full" : ""));
+    card.appendChild(makeElement("p", item.number, "stat-number"));
+    card.appendChild(makeElement("p", item.label, "stat-label"));
+    card.appendChild(makeElement("span", item.statusText, "stat-pill " + (item.isFull ? "full" : "open")));
+    mapStatsBox.appendChild(card);
+  });
+
+  // 2. Full Alert Banner
+  if (totalVacant === 0) {
+    lotFullBanner.textContent = "PARKING AREA FULL: All 50 Big vehicle slots and 50 Small vehicle slots are currently taken.";
+    lotFullBanner.hidden = false;
+  } else if (largeVacant === 0) {
+    lotFullBanner.textContent = "BIG VEHICLE ZONE FULL: All 50 Large vehicle slots (L-01 to L-50) are taken. Small vehicle spaces are still available.";
+    lotFullBanner.hidden = false;
+  } else if (smallVacant === 0) {
+    lotFullBanner.textContent = "SMALL VEHICLE ZONE FULL: All 50 Small vehicle slots (S-01 to S-50) are taken. Big vehicle spaces are still available.";
+    lotFullBanner.hidden = false;
+  } else {
+    lotFullBanner.hidden = true;
+  }
+
+  // 3. Zone Badges & Size-Lock Hint
+  const selectedSize = getSelectedVehicleSize();
+  largeZoneCount.textContent = "(" + largeVacant + "/" + RULES.capacity.large + ")";
+  smallZoneCount.textContent = "(" + smallVacant + "/" + RULES.capacity.small + ")";
+
+  zoneLargeBadge.classList.toggle("is-active-zone", workflowMode === "checkin" && selectedSize === "large");
+  zoneSmallBadge.classList.toggle("is-active-zone", workflowMode === "checkin" && selectedSize === "small");
+
+  if (workflowMode === "checkin") {
+    sizeLockHint.textContent = selectedSize === "large"
+      ? "Vehicle Type is Large: Only green slots for Large vehicles (L-01 to L-50) can be clicked."
+      : "Vehicle Type is Small: Only green slots for Small vehicles (S-01 to S-50) can be clicked.";
+  } else {
+    sizeLockHint.textContent = "Checking out Slot " + checkoutSlotId + ". Click any other red slot to switch.";
+  }
+
+  // 4. Render 5 Architectural Double-Loaded Bays
+  const query = slotSearchInput.value.trim().toLowerCase();
+  lotBaysRow.textContent = "";
+
+  ARCHITECTURAL_BAYS.forEach(function (bay) {
+    const bayEl = makeElement("div", undefined, "parking-bay");
+
+    // Top rounded concrete end-cap
+    bayEl.appendChild(makeElement("div", undefined, "bay-endcap top"));
+
+    // Center row: Left 10 stalls | Lamp spine | Right 10 stalls
+    const stallsWrap = makeElement("div", undefined, "bay-stalls-wrap");
+
+    const leftCol = makeElement("div", undefined, "bay-col");
+    bay.leftSlots.forEach(function (slotId) {
+      leftCol.appendChild(createSlotButton(slotId, query, selectedSize));
+    });
+
+    const spine = makeElement("div", undefined, "bay-spine");
+    spine.setAttribute("aria-hidden", "true");
+    for (let i = 0; i < 5; i++) {
+      spine.appendChild(makeElement("span", undefined, "lamp-node"));
+    }
+
+    const rightCol = makeElement("div", undefined, "bay-col");
+    bay.rightSlots.forEach(function (slotId) {
+      rightCol.appendChild(createSlotButton(slotId, query, selectedSize));
+    });
+
+    stallsWrap.appendChild(leftCol);
+    stallsWrap.appendChild(spine);
+    stallsWrap.appendChild(rightCol);
+
+    bayEl.appendChild(stallsWrap);
+
+    // Bottom rounded concrete end-cap
+    bayEl.appendChild(makeElement("div", undefined, "bay-endcap bottom"));
+
+    lotBaysRow.appendChild(bayEl);
+  });
+}
+
+// Search bar filtering
+slotSearchInput.addEventListener("input", function () {
+  clearSearchBtn.hidden = slotSearchInput.value.trim() === "";
+  renderParkingMap();
+});
+
+clearSearchBtn.addEventListener("click", function () {
+  slotSearchInput.value = "";
+  clearSearchBtn.hidden = true;
+  renderParkingMap();
+});
+
+// Reset entire parking lot map
+resetMapBtn.addEventListener("click", async function () {
+  if (Object.keys(occupiedSlots).length === 0) return;
+  if (!window.confirm("Mark all 100 parking spaces (Big & Small) as vacant?")) return;
+
+  occupiedSlots = {};
+  await persistSlotsState();
+  switchToCheckinMode(true);
+  renderParkingMap();
+});
+
+/* =====================================================
+   CHECK-IN SUBMIT (PARK VEHICLE IN SELECTED GREEN SLOT)
+   ===================================================== */
+form.addEventListener("submit", async function (event) {
+  event.preventDefault();
+  if (workflowMode !== "checkin") return;
+
+  clearError();
+  checkinNotice.hidden = true;
+
+  const detail = vehicleDetailInput.value.trim();
+  const plate = plateInput.value.trim().toUpperCase();
+
+  if (!selectedVacantSlot) {
+    errorBox.textContent = "Pick an available green parking slot on the map below first.";
+    errorBox.hidden = false;
+    document.getElementById("parking-map").scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+
+  const vehicleKey = vehicleSelect.value;
+  const vehicle = RULES.vehicles[vehicleKey];
+  const slotSize = selectedVacantSlot.startsWith("L-") ? "large" : "small";
+
+  if (slotSize !== vehicle.size) {
+    errorBox.textContent = "Selected slot " + selectedVacantSlot + " does not match " + vehicle.label + ".";
+    errorBox.hidden = false;
+    return;
+  }
+
+  if (detail && !/^[A-Za-z0-9 .,'()/-]{2,50}$/.test(detail)) {
+    showError({
+      field: vehicleDetailInput,
+      message: "Vehicle detail must be 2 to 50 characters (color, brand, and model)."
+    });
+    return;
+  }
+  if (plate && !/^[A-Za-z0-9 -]{3,20}$/.test(plate)) {
+    showError({
+      field: plateInput,
+      message: "Plate number must be 3 to 20 characters: letters, numbers, spaces or hyphens."
+    });
+    return;
+  }
+  if (!entryInput.value) {
+    showError({ field: entryInput, message: "Enter Time in or click Use current time." });
+    return;
+  }
+
+  const entry = new Date(entryInput.value);
+  if (isNaN(entry.getTime())) {
+    showError({ field: entryInput, message: "Time in is not a valid date and time." });
+    return;
+  }
+
+  parkSubmitBtn.disabled = true;
+  parkSubmitBtn.textContent = "Parking...";
+
+  const parkedSlotId = selectedVacantSlot;
+  occupiedSlots[parkedSlotId] = {
+    vehicleKey: vehicleKey,
+    label: vehicle.label,
+    detail: detail,
+    plate: plate,
+    timeIn: entry.toISOString()
+  };
+
+  await persistSlotsState();
+
+  parkSubmitBtn.disabled = false;
+  parkSubmitBtn.textContent = "Park vehicle in slot";
+
+  selectedVacantSlot = null;
+  form.reset();
+  updateSlotPickerDisplay();
+  renderParkingMap();
+
+  checkinNotice.textContent = "Parked! " + vehicle.label + (plate ? " (" + plate + ")" : "") + " is now in Slot " + parkedSlotId + " (Red).";
+  checkinNotice.hidden = false;
+});
+
+/* =====================================================
+   CHECK-OUT FEE CALCULATION & "PAID NOW"
    ===================================================== */
 function calculateFee(vehicleKey, entry, exit) {
   const vehicle = RULES.vehicles[vehicleKey];
@@ -431,64 +976,69 @@ function calculateFee(vehicleKey, entry, exit) {
   };
 }
 
-/* ---------- Validation ---------- */
-function validate() {
-  const detail = vehicleDetailInput.value.trim();
-  const plate = plateInput.value.trim();
+function runCheckoutCalculation() {
+  if (workflowMode !== "checkout" || !checkoutSlotId) return;
+  clearError();
 
-  if (detail && !/^[A-Za-z0-9 .,'()/-]{2,50}$/.test(detail)) {
-    return {
-      field: vehicleDetailInput,
-      message: "Vehicle detail must be 2 to 50 characters (color, brand, and model)."
-    };
-  }
-  if (plate && !/^[A-Za-z0-9 -]{3,20}$/.test(plate)) {
-    return {
-      field: plateInput,
-      message: "Plate number must be 3 to 20 characters: letters, numbers, spaces or hyphens."
-    };
-  }
-  if (!entryInput.value) {
-    return { field: entryInput, message: "Enter the time the vehicle came in." };
-  }
   if (!exitInput.value) {
-    return { field: exitInput, message: "Enter the time the vehicle went out." };
+    showError({ field: exitInput, message: "Set Time out or click Use current time." });
+    return;
   }
 
   const entry = new Date(entryInput.value);
   const exit = new Date(exitInput.value);
 
-  if (isNaN(entry.getTime()) || isNaN(exit.getTime())) {
-    return { field: entryInput, message: "One of the dates is not valid. Check the date and time." };
+  if (isNaN(exit.getTime())) {
+    showError({ field: exitInput, message: "Time out is not valid. Check the date and time." });
+    return;
   }
   if (exit <= entry) {
-    return { field: exitInput, message: "Time out must be later than time in." };
+    showError({ field: exitInput, message: "Time out must be later than Time in." });
+    return;
   }
   if ((exit - entry) / 60000 > RULES.maxDays * MINUTES_PER_DAY) {
-    return {
+    showError({
       field: exitInput,
       message: "That is more than " + RULES.maxDays + " days. Check that the dates are correct."
-    };
+    });
+    return;
   }
-  return null;
+
+  const occupant = occupiedSlots[checkoutSlotId];
+  const vehicleKey = occupant.vehicleKey;
+  const result = calculateFee(vehicleKey, entry, exit);
+
+  lastResult = {
+    slotId: checkoutSlotId,
+    vehicleKey: vehicleKey,
+    label: occupant.label,
+    plate: occupant.plate || "",
+    detail: occupant.detail || "",
+    entry: entry,
+    exit: exit,
+    minutes: result.minutes,
+    hours: result.hours,
+    fee: result.fee,
+    lines: result.lines
+  };
+
+  showResult(lastResult);
 }
 
-function showError(problem) {
-  errorBox.textContent = problem.message;
-  errorBox.hidden = false;
-  problem.field.setAttribute("aria-invalid", "true");
-  problem.field.focus();
-}
+nowButton.addEventListener("click", function () {
+  exitInput.value = toInputValue(new Date());
+  runCheckoutCalculation();
+});
 
-function clearError() {
-  errorBox.hidden = true;
-  errorBox.textContent = "";
-  [vehicleDetailInput, plateInput, entryInput, exitInput].forEach(function (field) {
-    field.removeAttribute("aria-invalid");
-  });
-}
+exitInput.addEventListener("change", function () {
+  if (exitInput.value) {
+    runCheckoutCalculation();
+  }
+});
 
-/* ---------- Showing the result ---------- */
+calcCheckoutBtn.addEventListener("click", runCheckoutCalculation);
+
+/* ---------- Showing the ticket result ---------- */
 function addFact(label, value) {
   factsList.appendChild(makeElement("dt", label));
   factsList.appendChild(makeElement("dd", value));
@@ -500,9 +1050,10 @@ function showResult(data) {
 
   feeAmount.textContent = money(data.fee);
   feeAmount.classList.remove("is-empty");
-  feeNote.textContent = vehicle.label + " parked for " + formatDuration(data.minutes);
+  feeNote.textContent = "Slot " + data.slotId + " • " + vehicle.label + " parked for " + formatDuration(data.minutes);
 
   factsList.textContent = "";
+  addFact("Parking slot", data.slotId);
   addFact("Vehicle", vehicle.label + " (" + size.label.toLowerCase() + ")" + (data.plate ? ", " + data.plate : ""));
   if (data.detail) {
     addFact("Vehicle detail", data.detail);
@@ -523,7 +1074,7 @@ function showResult(data) {
   });
 
   saveButton.disabled = false;
-  saveButton.textContent = "Save to log";
+  saveButton.textContent = "Paid Now & Save to Log";
 
   placeholder.hidden = true;
   resultBox.hidden = false;
@@ -537,35 +1088,119 @@ function clearResult() {
   lastResult = null;
   feeAmount.textContent = RULES.currency + "--.--";
   feeAmount.classList.add("is-empty");
-  feeNote.textContent = "Fill in the times and choose Calculate fee.";
+  feeNote.textContent = "Click a red taken slot on the map when a vehicle is leaving.";
   resultBox.hidden = true;
   placeholder.hidden = false;
-  clearError();
+}
+
+function showError(problem) {
+  errorBox.textContent = problem.message;
+  errorBox.hidden = false;
+  problem.field.setAttribute("aria-invalid", "true");
+  problem.field.focus();
+}
+
+function clearError() {
+  errorBox.hidden = true;
+  errorBox.textContent = "";
+  [vehicleDetailInput, plateInput, entryInput, exitInput].forEach(function (field) {
+    field.removeAttribute("aria-invalid");
+  });
 }
 
 /* =====================================================
-   SAVED SESSIONS (Cloud for users, Temporary for Demo)
+   "PAID NOW & SAVE TO LOG" -> TURNS RED SLOT BACK TO GREEN
    ===================================================== */
-function userSessionsRef() {
-  return db.collection("users").doc(currentUser.uid).collection("sessions");
+saveButton.addEventListener("click", async function () {
+  if (!lastResult || !currentUser) return;
+
+  saveButton.disabled = true;
+  saveButton.textContent = "Processing payment...";
+
+  const paidSlotId = lastResult.slotId;
+  const record = {
+    slotId: paidSlotId,
+    plate: lastResult.plate,
+    label: lastResult.label,
+    detail: lastResult.detail,
+    entry: lastResult.entry.toISOString(),
+    exit: lastResult.exit.toISOString(),
+    minutes: lastResult.minutes,
+    fee: lastResult.fee,
+    createdAtMs: Date.now()
+  };
+
+  // Free the parking slot (turns Red -> Green)
+  delete occupiedSlots[paidSlotId];
+
+  if (currentUser.isDemo) {
+    log.push(record);
+    saveDemoLog();
+    saveDemoSlots();
+    renderLog();
+    switchToCheckinMode(true);
+    checkinNotice.textContent = "Payment recorded! Slot " + paidSlotId + " is now VACANT (Green).";
+    checkinNotice.hidden = false;
+    return;
+  }
+
+  try {
+    const docRef = await userSessionsRef().add(record);
+    await persistSlotsState();
+
+    log.push(Object.assign({ id: docRef.id }, record));
+    renderLog();
+
+    switchToCheckinMode(true);
+    checkinNotice.textContent = "Payment recorded! Slot " + paidSlotId + " is now VACANT (Green).";
+    checkinNotice.hidden = false;
+  } catch (error) {
+    console.error("Failed to save paid session:", error);
+    saveButton.disabled = false;
+    saveButton.textContent = "Paid Now & Save to Log";
+    alert("Could not save to the database. Check your internet connection.");
+  }
+});
+
+/* =====================================================
+   SAVED SESSIONS & CLOUD SYNC
+   ===================================================== */
+function userDocRef() {
+  return db.collection("users").doc(currentUser.uid);
 }
 
-async function loadCloudLog() {
+function userSessionsRef() {
+  return userDocRef().collection("sessions");
+}
+
+async function loadCloudData() {
   if (!currentUser || currentUser.isDemo) {
     log = [];
+    occupiedSlots = {};
     return;
   }
   try {
-    const snapshot = await userSessionsRef().get();
+    const [userSnap, sessionsSnap] = await Promise.all([
+      userDocRef().get(),
+      userSessionsRef().get()
+    ]);
+
+    if (userSnap.exists && userSnap.data().occupiedSlots) {
+      occupiedSlots = userSnap.data().occupiedSlots;
+    } else {
+      occupiedSlots = {};
+    }
+
     const items = [];
-    snapshot.forEach(function (doc) {
+    sessionsSnap.forEach(function (doc) {
       items.push(Object.assign({ id: doc.id }, doc.data()));
     });
     items.sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
     log = items;
   } catch (error) {
-    console.error("Could not load sessions:", error);
+    console.error("Could not load cloud data:", error);
     log = [];
+    occupiedSlots = {};
   }
 }
 
@@ -588,6 +1223,7 @@ function renderLog() {
   log.slice().reverse().forEach(function (entry) {
     total += entry.fee;
     const row = makeElement("tr");
+    row.appendChild(makeElement("td", entry.slotId || "—"));
     row.appendChild(makeElement("td", entry.plate || "No plate"));
     row.appendChild(makeElement("td", entry.label));
     row.appendChild(makeElement("td", entry.detail || "—"));
@@ -599,8 +1235,35 @@ function renderLog() {
   });
 
   const owner = currentUser ? currentUser.name + "'s log: " : "";
-  logSummary.textContent = owner + plural(log.length, "session") + " saved, " + money(total) + " collected in total.";
+  logSummary.textContent = owner + plural(log.length, "paid session") + " saved, " + money(total) + " collected in total.";
 }
+
+clearLogButton.addEventListener("click", async function () {
+  if (!currentUser || !window.confirm("Delete all of your saved sessions?")) return;
+
+  if (currentUser.isDemo) {
+    log = [];
+    saveDemoLog();
+    renderLog();
+    return;
+  }
+
+  clearLogButton.disabled = true;
+  try {
+    const snapshot = await userSessionsRef().get();
+    const batch = db.batch();
+    snapshot.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+
+    log = [];
+    renderLog();
+  } catch (error) {
+    console.error("Failed to clear log:", error);
+    alert("Could not clear the database log. Please try again.");
+  } finally {
+    clearLogButton.disabled = false;
+  }
+});
 
 /* ---------- Page setup ---------- */
 function vehiclesOfSize(sizeKey) {
@@ -646,113 +1309,6 @@ function renderRules() {
   rulesNote.textContent = "Minutes that do not make a full hour are not charged. There is no free parking time.";
 }
 
-/* ---------- Events ---------- */
-form.addEventListener("submit", function (event) {
-  event.preventDefault();
-  clearError();
-
-  const problem = validate();
-  if (problem) {
-    showError(problem);
-    return;
-  }
-
-  const entry = new Date(entryInput.value);
-  const exit = new Date(exitInput.value);
-  const vehicleKey = vehicleSelect.value;
-  const result = calculateFee(vehicleKey, entry, exit);
-
-  lastResult = {
-    vehicleKey: vehicleKey,
-    label: RULES.vehicles[vehicleKey].label,
-    plate: plateInput.value.trim().toUpperCase(),
-    detail: vehicleDetailInput.value.trim(),
-    entry: entry,
-    exit: exit,
-    minutes: result.minutes,
-    hours: result.hours,
-    fee: result.fee,
-    lines: result.lines
-  };
-
-  showResult(lastResult);
-});
-
-form.addEventListener("input", clearError);
-form.addEventListener("reset", clearResult);
-
-nowButton.addEventListener("click", function () {
-  exitInput.value = toInputValue(new Date());
-  clearError();
-});
-
-saveButton.addEventListener("click", async function () {
-  if (!lastResult || !currentUser) return;
-
-  saveButton.disabled = true;
-
-  const record = {
-    plate: lastResult.plate,
-    label: lastResult.label,
-    detail: lastResult.detail,
-    entry: lastResult.entry.toISOString(),
-    exit: lastResult.exit.toISOString(),
-    minutes: lastResult.minutes,
-    fee: lastResult.fee,
-    createdAtMs: Date.now()
-  };
-
-  // Demo mode: keep in temporary sessionStorage only (never sent to Firebase)
-  if (currentUser.isDemo) {
-    log.push(record);
-    saveDemoLog();
-    renderLog();
-    saveButton.textContent = "Saved to log";
-    return;
-  }
-
-  saveButton.textContent = "Saving...";
-
-  try {
-    const docRef = await userSessionsRef().add(record);
-    log.push(Object.assign({ id: docRef.id }, record));
-    renderLog();
-    saveButton.textContent = "Saved to log";
-  } catch (error) {
-    console.error("Failed to save session:", error);
-    saveButton.disabled = false;
-    saveButton.textContent = "Save to log";
-    alert("Could not save to the database. Check your internet connection.");
-  }
-});
-
-clearLogButton.addEventListener("click", async function () {
-  if (!currentUser || !window.confirm("Delete all of your saved sessions?")) return;
-
-  if (currentUser.isDemo) {
-    log = [];
-    saveDemoLog();
-    renderLog();
-    return;
-  }
-
-  clearLogButton.disabled = true;
-  try {
-    const snapshot = await userSessionsRef().get();
-    const batch = db.batch();
-    snapshot.forEach((doc) => batch.delete(doc.ref));
-    await batch.commit();
-
-    log = [];
-    renderLog();
-  } catch (error) {
-    console.error("Failed to clear log:", error);
-    alert("Could not clear the database log. Please try again.");
-  } finally {
-    clearLogButton.disabled = false;
-  }
-});
-
 /* ---------- Start ---------- */
 renderRules();
 
@@ -770,7 +1326,6 @@ if (hasActiveDemo) {
 auth.onAuthStateChanged(async function (user) {
   if (isRegistering) return;
 
-  // Clean up any leftover Firebase demo account from earlier testing
   if (user && user.email === "demo" + AUTH_DOMAIN) {
     await auth.signOut();
     return;
